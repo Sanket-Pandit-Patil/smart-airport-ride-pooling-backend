@@ -1,0 +1,12 @@
+{
+  "info": { "name": "Smart Airport Ride Pooling", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json" },
+  "item": [
+    { "name": "Health", "request": { "method": "GET", "url": "http://localhost:3000/health" } },
+    { "name": "Create Passenger", "request": { "method": "POST", "url": "http://localhost:3000/api/passengers", "body": { "mode": "raw", "raw": "{\n  \"name\": \"Alice\"\n}" } } },
+    { "name": "Create Booking", "request": { "method": "POST", "url": "http://localhost:3000/api/bookings", "body": { "mode": "raw", "raw": "{\n  \"passengerId\": \"{{passengerId}}\",\n  \"pickup\": { \"lat\": 28.5355, \"lng\": 77.391 },\n  \"dropoff\": { \"lat\": 28.6139, \"lng\": 77.209 },\n  \"luggageCount\": 1\n}" } } },
+    { "name": "Get Booking", "request": { "method": "GET", "url": "http://localhost:3000/api/bookings/{{bookingId}}" } },
+    { "name": "Cancel Booking", "request": { "method": "DELETE", "url": "http://localhost:3000/api/bookings/{{bookingId}}", "body": { "mode": "raw", "raw": "{\n  \"version\": 0\n}" } } },
+    { "name": "Run Matching", "request": { "method": "POST", "url": "http://localhost:3000/api/rides/match" } },
+    { "name": "Get Ride", "request": { "method": "GET", "url": "http://localhost:3000/api/rides/{{rideId}}" } }
+  ]
+}

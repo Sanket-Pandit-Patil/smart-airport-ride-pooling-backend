@@ -1,0 +1,179 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Smart Airport Ride Pooling API",
+    "version": "1.0.0",
+    "description": "Backend for grouping passengers into shared cabs with route and pricing optimization."
+  },
+  "servers": [
+    { "url": "/", "description": "Same host/port as this docs page" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "responses": {
+          "200": { "description": "OK" },
+          "503": { "description": "DB down" }
+        }
+      }
+    },
+    "/api/passengers": {
+      "post": {
+        "summary": "Create passenger",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": { "name": { "type": "string" } }
+              },
+              "example": { "name": "Alice" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" } } }
+              }
+            }
+          },
+          "400": { "description": "Validation failed" }
+        }
+      }
+    },
+    "/api/passengers/{id}": {
+      "get": {
+        "summary": "Get passenger",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "OK" },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/api/bookings": {
+      "post": {
+        "summary": "Create booking",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["passengerId", "pickup", "dropoff"],
+                "properties": {
+                  "passengerId": { "type": "string", "format": "uuid" },
+                  "pickup": {
+                    "type": "object",
+                    "required": ["lat", "lng"],
+                    "properties": { "lat": { "type": "number" }, "lng": { "type": "number" } }
+                  },
+                  "dropoff": {
+                    "type": "object",
+                    "required": ["lat", "lng"],
+                    "properties": { "lat": { "type": "number" }, "lng": { "type": "number" } }
+                  },
+                  "luggageCount": { "type": "integer", "minimum": 0, "default": 0 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "bookingId": { "type": "string", "format": "uuid" },
+                    "status": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Validation failed" },
+          "500": { "description": "Passenger not found or server error" }
+        }
+      }
+    },
+    "/api/bookings/{id}": {
+      "get": {
+        "summary": "Get booking",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "OK" },
+          "404": { "description": "Not found" }
+        }
+      },
+      "delete": {
+        "summary": "Cancel booking (optimistic locking)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["version"],
+                "properties": { "version": { "type": "integer", "minimum": 0 } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Cancelled" },
+          "400": { "description": "Version required" },
+          "409": { "description": "Already cancelled or matched" }
+        }
+      }
+    },
+    "/api/rides/match": {
+      "post": {
+        "summary": "Run ride matching (pool pending bookings)",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ridesCreated": { "type": "integer" },
+                    "bookingsMatched": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rides/{id}": {
+      "get": {
+        "summary": "Get ride with bookings",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "OK" },
+          "404": { "description": "Not found" }
+        }
+      }
+    }
+  }
+}

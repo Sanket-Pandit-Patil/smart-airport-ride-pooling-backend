@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: airport_pooling
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d airport_pooling"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  api:
+    build: .
+    environment:
+      PORT: "3000"
+      PG_HOST: db
+      PG_PORT: "5432"
+      PG_DATABASE: airport_pooling
+      PG_USER: postgres
+      PG_PASSWORD: postgres
+      PG_POOL_SIZE: "20"
+      MAX_DETOUR_FACTOR: "0.3"
+      BASE_FARE_PER_KM: "2.5"
+      POOLING_DISCOUNT_FACTOR: "0.85"
+    ports:
+      - "8080:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["sh", "-c", "npm run migrate:up && node dist/server.js"]
+
+volumes:
+  pg_data:
+
