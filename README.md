@@ -3,6 +3,14 @@
 Backend system that **groups passengers into shared cabs** while optimizing routes and pricing. Supports real-time cancellations, seat/luggage constraints, detour tolerance, and is built for **10k concurrent users** and **100 req/s** with **&lt;300ms latency**.
 
 ---
+ 
+ ## Status
+ 
+ - [x] **Verified**: All tests passed (Unit, Integration, Concurrency).
+ - [x] **Implemented**: Cron job, Dynamic Pricing, Pooling Algorithm.
+ - [x] **Ready**: Dockerized and runnable.
+ 
+ ---
 
 ## Tech Stack
 
@@ -154,13 +162,16 @@ Hintro/
 
 ## Testing
 
-### Unit Tests
+### Automated tests
 
-Run unit tests for pooling algorithm and pricing formula:
+Run the full test suite (unit, integration, and concurrency):
 
 ```bash
 npm test
 ```
+
+**Note:** PostgreSQL must be running and reachable using the `PG_*` values in `.env`.  
+By default, `docker compose up` exposes the DB on `127.0.0.1:5433`, which matches the committed `.env`.
 
 Tests include:
 - **Distance calculation** (Haversine formula)
@@ -219,8 +230,8 @@ Environment variables (see `src/config/index.ts`):
 ```bash
 PORT=3000                           # API port
 NODE_ENV=development                # development | production
-PG_HOST=localhost                   # PostgreSQL host
-PG_PORT=5432                        # PostgreSQL port
+PG_HOST=127.0.0.1                   # PostgreSQL host (matches .env for local/dev)
+PG_PORT=5433                        # PostgreSQL port (Docker exposes 5433 -> 5432)
 PG_DATABASE=airport_pooling        # Database name
 PG_USER=postgres                    # DB user
 PG_PASSWORD=postgres                # DB password
@@ -237,7 +248,7 @@ POOLING_DISCOUNT_FACTOR=0.85       # Discount when sharing (15% off)
 - **Concurrency:** Pool, `FOR UPDATE SKIP LOCKED`, and version-based cancel in [docs/CONCURRENCY.md](docs/CONCURRENCY.md).
 - **Performance:** Async I/O, connection pool, indexes; target &lt;300ms and 100 req/s.
 - **Architecture:** Layered (routes → services → repositories); see [docs/LOW_LEVEL_DESIGN.md](docs/LOW_LEVEL_DESIGN.md) and [docs/HIGH_LEVEL_ARCHITECTURE.md](docs/HIGH_LEVEL_ARCHITECTURE.md).
-- **Tests:** `npm test` runs unit tests for algorithm and pricing.
+- **Tests:** `npm test` runs unit, integration, and concurrency test suites.
 
 ---
 
