@@ -11,11 +11,41 @@ import * as bookingService from '../src/services/booking-service';
 
 const pool = getPool();
 
+beforeAll(async () => {
+  // Wait for DB to be reachable
+  const maxAttempts = 10;
+  let connected = false;
+
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      await pool.query('SELECT 1');
+      connected = true;
+      break;
+    } catch (e) {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+
+  if (!connected) {
+    throw new Error('Database not reachable');
+  }
+
+  // Cleanup DB before starting this test suite so results are deterministic
+  await pool.query('TRUNCATE TABLE ride_waypoints, bookings, rides, passengers, cabs RESTART IDENTITY CASCADE');
+  const { ensureDefaultCabs } = await import('../src/repositories/cab-repository');
+  await ensureDefaultCabs(); // Re-seed cabs
+});
+
+
+afterAll(async () => {
+  await pool.end();
+});
+
 describe('Concurrency - Booking Creation', () => {
   it('should handle 100 concurrent booking creates without duplicates', async () => {
     // Create a passenger
     const passenger = await passengerRepo.createPassenger('Concurrent Test User');
-    
+
     // Create 100 concurrent bookings
     const promises = Array.from({ length: 100 }, (_, i) =>
       bookingRepo.createBooking(
@@ -29,15 +59,15 @@ describe('Concurrency - Booking Creation', () => {
     );
 
     const bookings = await Promise.all(promises);
-    
+
     // Verify all bookings created
     expect(bookings).toHaveLength(100);
-    
+
     // Verify unique IDs
     const ids = bookings.map((b) => b.id);
     const uniqueIds = new Set(ids);
     expect(uniqueIds.size).toBe(100);
-    
+
     // Verify all are PENDING
     bookings.forEach((b) => {
       expect(b.status).toBe('PENDING');
@@ -46,7 +76,7 @@ describe('Concurrency - Booking Creation', () => {
 
   it('should handle 50 concurrent bookings with proper data integrity', async () => {
     const passenger = await passengerRepo.createPassenger('Concurrent Data Test');
-    
+
     const coords = [
       { pickup: [28.5355, 77.391], dropoff: [28.6139, 77.209] },
       { pickup: [28.5500, 77.400], dropoff: [28.6200, 77.220] },
@@ -66,7 +96,7 @@ describe('Concurrency - Booking Creation', () => {
     });
 
     const bookings = await Promise.all(promises);
-    
+
     // Verify data integrity
     bookings.forEach((b, i) => {
       const coord = coords[i % coords.length];
@@ -89,7 +119,7 @@ describe('Concurrency - Booking Cancellation', () => {
     );
 
     const version = booking.version;
-    
+
     // Try to cancel twice concurrently with same version
     const [result1, result2] = await Promise.all([
       bookingRepo.cancelBooking(booking.id, version),
@@ -143,7 +173,7 @@ describe('Concurrency - Booking Cancellation', () => {
     );
 
     const version = booking.version;
-    
+
     // Try to cancel 20 times concurrently
     const results = await Promise.all(
       Array.from({ length: 20 }, () =>
@@ -158,10 +188,20 @@ describe('Concurrency - Booking Cancellation', () => {
 });
 
 describe('Concurrency - Ride Matching', () => {
+  // Ensure each test in this block runs with a clean set of bookings/rides.
+  // Without this, earlier concurrency tests leave many PENDING bookings,
+  // and runMatching() would legitimately match far more than the 3
+  // bookings created in these specific tests.
+  beforeEach(async () => {
+    await pool.query('TRUNCATE TABLE ride_waypoints, bookings, rides, passengers, cabs RESTART IDENTITY CASCADE');
+    const { ensureDefaultCabs } = await import('../src/repositories/cab-repository');
+    await ensureDefaultCabs();
+  });
+
   it('should process matching transaction atomically', async () => {
     // Create pending bookings
     const passenger = await passengerRepo.createPassenger('Matching Test User 1');
-    
+
     const bookings = await Promise.all([
       bookingRepo.createBooking(passenger.id, 28.5355, 77.391, 28.6139, 77.209, 0),
       bookingRepo.createBooking(passenger.id, 28.5360, 77.392, 28.6140, 77.210, 0),
@@ -170,7 +210,7 @@ describe('Concurrency - Ride Matching', () => {
 
     // Run matching (should create ride(s) and match the bookings)
     const result = await bookingService.runMatching();
-    
+
     expect(result.bookingsMatched).toBeGreaterThan(0);
     expect(result.bookingsMatched).toBeLessThanOrEqual(3);
 
@@ -189,7 +229,7 @@ describe('Concurrency - Ride Matching', () => {
   it('should prevent double-matching with FOR UPDATE SKIP LOCKED', async () => {
     // This is harder to test without raw SQL, but we verify atomicity
     const passenger = await passengerRepo.createPassenger('Matching Concurrency Test');
-    
+
     await Promise.all([
       bookingRepo.createBooking(passenger.id, 28.5355, 77.391, 28.6139, 77.209, 0),
       bookingRepo.createBooking(passenger.id, 28.5360, 77.392, 28.6140, 77.210, 0),
@@ -208,7 +248,7 @@ describe('Concurrency - Ride Matching', () => {
 
   it('should maintain consistency across concurrent match and cancel', async () => {
     const passenger = await passengerRepo.createPassenger('Mixed Ops Test');
-    
+
     const booking1 = await bookingRepo.createBooking(
       passenger.id,
       28.5355,
@@ -265,7 +305,7 @@ describe('Concurrency - Connection Pool', () => {
     const promise3 = pool.query('SELECT 3 as val').catch(() => null);
 
     const results = await Promise.all([promise1, promise2, promise3]);
-    
+
     // At least 2 should succeed
     const successCount = results.filter((r) => r !== null).length;
     expect(successCount).toBeGreaterThanOrEqual(2);
@@ -275,7 +315,7 @@ describe('Concurrency - Connection Pool', () => {
 describe('Concurrency - Data Consistency', () => {
   it('should maintain foreign key integrity', async () => {
     const passenger = await passengerRepo.createPassenger('FK Test User');
-    
+
     const bookings = await Promise.all([
       bookingRepo.createBooking(passenger.id, 28.5355, 77.391, 28.6139, 77.209, 0),
       bookingRepo.createBooking(passenger.id, 28.5360, 77.392, 28.6140, 77.210, 1),
