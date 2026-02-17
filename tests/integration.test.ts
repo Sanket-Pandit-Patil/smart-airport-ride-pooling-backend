@@ -5,7 +5,7 @@
  */
 
 // When running tests locally with Docker Compose the DB is exposed on host port 5433.
-process.env.PG_HOST = process.env.PG_HOST || 'localhost';
+process.env.PG_HOST = process.env.PG_HOST || '127.0.0.1';
 process.env.PG_PORT = process.env.PG_PORT || '5433';
 
 // allow longer network/DB startup time
@@ -89,6 +89,6 @@ describe('Integration - End-to-end API', () => {
 
   it('runs matching endpoint', async () => {
     const res = await request(app).post('/api/rides/match');
-    expect([200,201]).toContain(res.status);
+    expect([200, 201]).toContain(res.status);
   });
 });
