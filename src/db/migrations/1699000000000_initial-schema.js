@@ -59,9 +59,17 @@ exports.up = (pgm) => {
   pgm.createIndex('bookings', 'ride_id');
   pgm.createIndex('bookings', 'created_at');
   pgm.createIndex('bookings', ['pickup_lat', 'pickup_lng']);
+  
+  // Compound indexes for performance optimization
+  pgm.createIndex('bookings', ['status', 'created_at'], { name: 'idx_bookings_status_created' });
+  pgm.createIndex('bookings', 'updated_at', { name: 'idx_bookings_updated_at' });
+  
   pgm.createIndex('rides', 'cab_id');
   pgm.createIndex('rides', 'status');
+  pgm.createIndex('rides', ['status', 'created_at'], { name: 'idx_rides_status_created' });
+  
   pgm.createIndex('ride_waypoints', 'ride_id');
+  pgm.createIndex('ride_waypoints', ['ride_id', 'sequence'], { name: 'idx_waypoints_ride_sequence' });
 };
 
 exports.down = (pgm) => {

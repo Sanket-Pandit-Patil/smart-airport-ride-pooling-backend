@@ -1,5 +1,8 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import * as bookingService from '../services/booking-service';
+import { validateUUID } from '../utils/validation';
+import { ValidationError } from '../utils/errors';
+import { successResponse, notFoundResponse } from '../utils/response';
 
 const router = Router();
 
@@ -7,27 +10,31 @@ const router = Router();
  * POST /rides/match - Run the pooling algorithm and assign pending bookings to rides
  * (Concurrency-safe: uses transaction + FOR UPDATE SKIP LOCKED)
  */
-router.post('/match', async (req: Request, res: Response) => {
+router.post('/match', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await bookingService.runMatching();
-    return res.json(result);
+    return res.json(successResponse(result, 'Matching completed successfully'));
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Internal server error';
-    return res.status(500).json({ error: message });
+    next(e);
   }
 });
 
 /**
  * GET /rides/:id - Get ride details with bookings
  */
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    validateUUID(req.params.id, 'Ride ID');
     const ride = await bookingService.getRide(req.params.id);
-    if (!ride) return res.status(404).json({ error: 'Ride not found' });
-    return res.json(ride);
+    if (!ride) {
+      return res.status(404).json(notFoundResponse('Ride not found'));
+    }
+    return res.json(successResponse(ride, 'Ride retrieved successfully'));
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Internal server error';
-    return res.status(500).json({ error: message });
+    if (e instanceof ValidationError) {
+      return res.status(e.statusCode).json({ error: e.message });
+    }
+    next(e);
   }
 });
 

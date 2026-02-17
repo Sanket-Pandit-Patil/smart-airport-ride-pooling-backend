@@ -1,0 +1,17 @@
+%% Low Level Design (Mermaid class-style)
+classDiagram
+  class BookingService{
+    +createBooking()
+    +cancelBooking()
+    +runMatching()
+  }
+  class PoolingAlgorithm{
+    +computePooling()
+  }
+  class BookingRepository{
+    +createBooking()
+    +getBooking()
+  }
+  BookingService --> PoolingAlgorithm
+  BookingService --> BookingRepository
+  BookingRepository --> DB[(Postgres)]

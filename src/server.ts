@@ -1,7 +1,13 @@
 import app from './app';
 import { config } from './config';
 import { getPool } from './db/pool';
+import { startMatchingCron } from './cron';
 import { ensureDefaultCabs } from './repositories/cab-repository';
+
+const PORT = config.port;
+
+// Start the cron job for ride matching
+startMatchingCron();
 
 async function start() {
   try {

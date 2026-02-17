@@ -1,6 +1,15 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import * as bookingService from '../services/booking-service';
+import {
+  validateGeoCoordinates,
+  validateLocation,
+  validateUUID,
+  validateLuggageCount,
+  validateVersion,
+} from '../utils/validation';
+import { ValidationError, BookingNotFoundError, BookingAlreadyMatchedError } from '../utils/errors';
+import { successResponse, validationErrorResponse, notFoundResponse, conflictResponse } from '../utils/response';
 
 const router = Router();
 
@@ -14,32 +23,45 @@ const createBookingSchema = z.object({
 /**
  * POST /bookings - Create a new booking
  */
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = createBookingSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+      return res.status(400).json(validationErrorResponse(parsed.error.flatten().fieldErrors));
     }
     const { passengerId, pickup, dropoff, luggageCount } = parsed.data;
+    
+    // Validate coordinates
+    validateGeoCoordinates(pickup.lat, pickup.lng);
+    validateGeoCoordinates(dropoff.lat, dropoff.lng);
+    validateLuggageCount(luggageCount ?? 0);
+    
     const result = await bookingService.createBooking(passengerId, pickup, dropoff, luggageCount ?? 0);
-    return res.status(201).json(result);
+    return res.status(201).json(successResponse(result, 'Booking created successfully', 201));
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Internal server error';
-    return res.status(500).json({ error: message });
+    if (e instanceof ValidationError) {
+      return res.status(e.statusCode).json(validationErrorResponse({ message: e.message }));
+    }
+    next(e);
   }
 });
 
 /**
  * GET /bookings/:id - Get booking by ID
  */
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    validateUUID(req.params.id, 'Booking ID');
     const booking = await bookingService.getBooking(req.params.id);
-    if (!booking) return res.status(404).json({ error: 'Booking not found' });
-    return res.json(booking);
+    if (!booking) {
+      return res.status(404).json(notFoundResponse('Booking not found'));
+    }
+    return res.json(successResponse(booking, 'Booking retrieved successfully'));
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Internal server error';
-    return res.status(500).json({ error: message });
+    if (e instanceof ValidationError) {
+      return res.status(e.statusCode).json(validationErrorResponse({ message: e.message }));
+    }
+    next(e);
   }
 });
 
@@ -47,18 +69,21 @@ router.get('/:id', async (req: Request, res: Response) => {
  * DELETE /bookings/:id - Cancel booking (optimistic lock)
  * Body: { "version": number }
  */
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const version = Number(req.body?.version ?? req.query.version);
-    if (Number.isNaN(version) || version < 0) {
-      return res.status(400).json({ error: 'Version is required for cancellation' });
-    }
+    validateUUID(req.params.id, 'Booking ID');
+    const version = validateVersion(req.body?.version ?? req.query.version);
+    
     const result = await bookingService.cancelBooking(req.params.id, version);
-    if (!result.cancelled) return res.status(409).json({ error: 'Booking not found or already cancelled/matched' });
-    return res.json(result);
+    if (!result.cancelled) {
+      return res.status(409).json(conflictResponse('Booking already cancelled or matched'));
+    }
+    return res.json(successResponse(result, 'Booking cancelled successfully'));
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Internal server error';
-    return res.status(500).json({ error: message });
+    if (e instanceof ValidationError) {
+      return res.status(e.statusCode).json(validationErrorResponse({ message: e.message }));
+    }
+    next(e);
   }
 });
 

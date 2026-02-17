@@ -4,6 +4,8 @@
  */
 const { execSync } = require('child_process');
 const path = require('path');
+require('dotenv').config();
+
 
 const host = process.env.PG_HOST || 'localhost';
 const port = process.env.PG_PORT || '5432';

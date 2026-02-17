@@ -29,7 +29,7 @@ services:
       BASE_FARE_PER_KM: "2.5"
       POOLING_DISCOUNT_FACTOR: "0.85"
     ports:
-      - "8080:3000"
+      - "3000:3000"
     depends_on:
       db:
         condition: service_healthy

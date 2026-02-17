@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      PG_HOST: localhost
+      PG_PORT: 5432
+      PG_DATABASE: airport_pooling
+      PG_USER: postgres
+      PG_PASSWORD: postgres
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: airport_pooling
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d airport_pooling"
+          --health-interval 2s --health-timeout 2s --health-retries 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for Postgres
+        run: |
+          echo "Waiting for Postgres on localhost:5432..."
+          for i in $(seq 1 30); do
+            if bash -c "</dev/tcp/localhost/5432" 2>/dev/null; then
+              echo "Postgres is accepting connections"; exit 0
+            fi
+            echo "Postgres not ready yet (attempt $i)";
+            sleep 2
+          done
+          echo "Postgres did not become ready in time"; exit 1
+
+      - name: Run migrations
+        env:
+          PG_HOST: ${{ env.PG_HOST }}
+          PG_PORT: ${{ env.PG_PORT }}
+          PG_DATABASE: ${{ env.PG_DATABASE }}
+          PG_USER: ${{ env.PG_USER }}
+          PG_PASSWORD: ${{ env.PG_PASSWORD }}
+        run: npm run migrate:up
+
+      - name: Seed database
+        env:
+          PG_HOST: ${{ env.PG_HOST }}
+          PG_PORT: ${{ env.PG_PORT }}
+          PG_DATABASE: ${{ env.PG_DATABASE }}
+          PG_USER: ${{ env.PG_USER }}
+          PG_PASSWORD: ${{ env.PG_PASSWORD }}
+        run: npm run seed
+
+      - name: Run tests
+        env:
+          PG_HOST: ${{ env.PG_HOST }}
+          PG_PORT: ${{ env.PG_PORT }}
+          PG_DATABASE: ${{ env.PG_DATABASE }}
+          PG_USER: ${{ env.PG_USER }}
+          PG_PASSWORD: ${{ env.PG_PASSWORD }}
+        run: npm test -- --runInBand

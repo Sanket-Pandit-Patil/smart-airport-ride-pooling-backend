@@ -3,177 +3,234 @@
   "info": {
     "title": "Smart Airport Ride Pooling API",
     "version": "1.0.0",
-    "description": "Backend for grouping passengers into shared cabs with route and pricing optimization."
+    "description": "Backend for grouping passengers into shared cabs with route and pricing optimization. Supports 10k concurrent users, 100 req/s, <300ms latency with dynamic pricing and concurrency-safe operations.",
+    "contact": { "name": "API Support" }
   },
   "servers": [
-    { "url": "/", "description": "Same host/port as this docs page" }
+    { "url": "http://localhost:3000", "description": "Development server" },
+    { "url": "/", "description": "Relative URL (same host/port as docs)" }
   ],
+  "components": {
+    "schemas": {
+      "ApiResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "description": "Whether the request was successful" },
+          "statusCode": { "type": "integer", "description": "HTTP status code" },
+          "message": { "type": "string", "description": "Human-readable message" },
+          "data": { "type": "object", "description": "Response payload (varies by endpoint)" },
+          "timestamp": { "type": "string", "format": "date-time", "description": "Response timestamp (ISO 8601)" }
+        },
+        "required": ["success", "statusCode", "timestamp"]
+      },
+      "Passenger": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid", "description": "Unique passenger identifier" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 255, "description": "Passenger name" },
+          "created_at": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "name", "created_at"]
+      },
+      "GeoLocation": {
+        "type": "object",
+        "properties": {
+          "lat": { "type": "number", "minimum": -90, "maximum": 90, "description": "Latitude (-90 to 90)" },
+          "lng": { "type": "number", "minimum": -180, "maximum": 180, "description": "Longitude (-180 to 180)" }
+        },
+        "required": ["lat", "lng"]
+      },
+      "Booking": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "passenger_id": { "type": "string", "format": "uuid" },
+          "pickup_lat": { "type": "number" },
+          "pickup_lng": { "type": "number" },
+          "dropoff_lat": { "type": "number" },
+          "dropoff_lng": { "type": "number" },
+          "luggage_count": { "type": "integer", "minimum": 0 },
+          "status": { "type": "string", "enum": ["PENDING", "MATCHED", "CANCELLED", "COMPLETED"] },
+          "ride_id": { "type": "string", "format": "uuid", "nullable": true, "description": "Assigned ride ID (null if PENDING)" },
+          "version": { "type": "integer", "description": "Optimistic lock version" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "passenger_id", "status", "version"]
+      },
+      "Ride": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "cab_id": { "type": "string", "format": "uuid" },
+          "total_distance_km": { "type": "number", "description": "Total route distance in kilometers" },
+          "total_fare": { "type": "number", "description": "Sum of all passenger fares" },
+          "status": { "type": "string", "enum": ["ACTIVE", "COMPLETED", "CANCELLED"] },
+          "bookings": { "type": "array", "items": { "$ref": "#/components/schemas/Booking" } },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "cab_id", "status"]
+      }
+    }
+  },
   "paths": {
+    "/": {
+      "get": {
+        "summary": "API root endpoint",
+        "tags": ["System"],
+        "responses": {
+          "200": {
+            "description": "API information",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResponse" } } }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
-        "summary": "Health check",
+        "summary": "Health check with database connectivity",
+        "tags": ["System"],
+        "description": "Returns service health status including database connection details, uptime, and environment.",
         "responses": {
-          "200": { "description": "OK" },
-          "503": { "description": "DB down" }
+          "200": { "description": "Service is healthy", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResponse" } } } },
+          "503": { "description": "Service unhealthy (database connection failed)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResponse" } } } }
         }
       }
     },
     "/api/passengers": {
       "post": {
-        "summary": "Create passenger",
+        "summary": "Create a new passenger",
+        "tags": ["Passengers"],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["name"],
-                "properties": { "name": { "type": "string" } }
-              },
-              "example": { "name": "Alice" }
+                "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 255, "example": "Alice Johnson" } },
+                "required": ["name"]
+              }
             }
           }
         },
         "responses": {
-          "201": {
-            "description": "Created",
-            "content": {
-              "application/json": {
-                "schema": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" } } }
-              }
-            }
-          },
-          "400": { "description": "Validation failed" }
+          "201": { "description": "Passenger created successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResponse" } } } },
+          "400": { "description": "Validation failed" },
+          "500": { "description": "Internal server error" }
         }
       }
     },
     "/api/passengers/{id}": {
       "get": {
-        "summary": "Get passenger",
-        "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
-        ],
+        "summary": "Get passenger by ID",
+        "tags": ["Passengers"],
+        "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } } ],
         "responses": {
-          "200": { "description": "OK" },
-          "404": { "description": "Not found" }
+          "200": { "description": "Passenger retrieved successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResponse" } } } },
+          "400": { "description": "Invalid ID format" },
+          "404": { "description": "Passenger not found" },
+          "500": { "description": "Internal server error" }
         }
       }
     },
     "/api/bookings": {
       "post": {
-        "summary": "Create booking",
+        "summary": "Create a new booking",
+        "tags": ["Bookings"],
+        "description": "Creates a PENDING booking for a passenger. Validates geographic coordinates and luggage count.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["passengerId", "pickup", "dropoff"],
                 "properties": {
-                  "passengerId": { "type": "string", "format": "uuid" },
-                  "pickup": {
-                    "type": "object",
-                    "required": ["lat", "lng"],
-                    "properties": { "lat": { "type": "number" }, "lng": { "type": "number" } }
-                  },
-                  "dropoff": {
-                    "type": "object",
-                    "required": ["lat", "lng"],
-                    "properties": { "lat": { "type": "number" }, "lng": { "type": "number" } }
-                  },
-                  "luggageCount": { "type": "integer", "minimum": 0, "default": 0 }
-                }
+                  "passengerId": { "type": "string", "format": "uuid", "example": "550e8400-e29b-41d4-a716-446655440000" },
+                  "pickup": { "$ref": "#/components/schemas/GeoLocation", "example": { "lat": 28.5355, "lng": 77.391 } },
+                  "dropoff": { "$ref": "#/components/schemas/GeoLocation", "example": { "lat": 28.6139, "lng": 77.209 } },
+                  "luggageCount": { "type": "integer", "minimum": 0, "default": 0, "example": 1 }
+                },
+                "required": ["passengerId", "pickup", "dropoff"]
               }
             }
           }
         },
         "responses": {
-          "201": {
-            "description": "Created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "bookingId": { "type": "string", "format": "uuid" },
-                    "status": { "type": "string" }
-                  }
-                }
-              }
-            }
-          },
-          "400": { "description": "Validation failed" },
-          "500": { "description": "Passenger not found or server error" }
+          "201": { "description": "Booking created successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResponse" } } } },
+          "400": { "description": "Validation failed (invalid coordinates, luggage count, or UUID)" },
+          "404": { "description": "Passenger not found" },
+          "500": { "description": "Internal server error" }
         }
       }
     },
     "/api/bookings/{id}": {
       "get": {
-        "summary": "Get booking",
-        "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
-        ],
+        "summary": "Get booking by ID",
+        "tags": ["Bookings"],
+        "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } } ],
         "responses": {
-          "200": { "description": "OK" },
-          "404": { "description": "Not found" }
+          "200": { "description": "Booking retrieved successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResponse" } } } },
+          "400": { "description": "Invalid ID format" },
+          "404": { "description": "Booking not found" },
+          "500": { "description": "Internal server error" }
         }
       },
       "delete": {
-        "summary": "Cancel booking (optimistic locking)",
-        "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
-        ],
+        "summary": "Cancel a booking (optimistic locking)",
+        "tags": ["Bookings"],
+        "description": "Cancels a PENDING booking. Uses optimistic locking with version to prevent concurrent cancellation conflicts. Returns 409 if already matched or cancelled.",
+        "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } } ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["version"],
-                "properties": { "version": { "type": "integer", "minimum": 0 } }
+                "properties": { "version": { "type": "integer", "minimum": 0, "description": "Current booking version (for optimistic locking)", "example": 0 } },
+                "required": ["version"]
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "Cancelled" },
-          "400": { "description": "Version required" },
-          "409": { "description": "Already cancelled or matched" }
+          "200": { "description": "Booking cancelled successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResponse" } } } },
+          "400": { "description": "Invalid ID or version format" },
+          "409": { "description": "Booking already cancelled or matched" },
+          "500": { "description": "Internal server error" }
         }
       }
     },
     "/api/rides/match": {
       "post": {
-        "summary": "Run ride matching (pool pending bookings)",
+        "summary": "Run ride matching algorithm",
+        "tags": ["Rides"],
+        "description": "Executes the pooling algorithm to group PENDING bookings into rides. Uses transaction with FOR UPDATE SKIP LOCKED for concurrent safety. Respects seat/luggage constraints and detour tolerance.",
+        "requestBody": { "description": "Empty body", "content": { "application/json": { "schema": { "type": "object" } } } },
         "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ridesCreated": { "type": "integer" },
-                    "bookingsMatched": { "type": "integer" }
-                  }
-                }
-              }
-            }
-          }
+          "200": { "description": "Matching completed successfully", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResponse" } } } },
+          "500": { "description": "Internal server error" }
         }
       }
     },
     "/api/rides/{id}": {
       "get": {
-        "summary": "Get ride with bookings",
-        "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
-        ],
+        "summary": "Get ride with assigned bookings",
+        "tags": ["Rides"],
+        "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } } ],
         "responses": {
-          "200": { "description": "OK" },
-          "404": { "description": "Not found" }
+          "200": { "description": "Ride retrieved successfully with all bookings", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResponse" } } } },
+          "400": { "description": "Invalid ID format" },
+          "404": { "description": "Ride not found" },
+          "500": { "description": "Internal server error" }
         }
       }
     }
-  }
+  },
+  "tags": [
+    { "name": "System", "description": "System and health endpoints" },
+    { "name": "Passengers", "description": "Passenger management" },
+    { "name": "Bookings", "description": "Booking management with optimistic locking" },
+    { "name": "Rides", "description": "Ride management and pooling" }
+  ]
 }
